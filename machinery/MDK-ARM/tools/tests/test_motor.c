@@ -118,8 +118,22 @@ int main(void)
     tick = 10;
     assert(Motor_Update() == HAL_OK);
     assert(encoderA.delta == 10 && encoderB.delta == -10);
+    {
+        Motor_FeedbackSnapshot snapshot;
+        Motor_GetFeedbackSnapshot(&snapshot);
+        assert(snapshot.valid_bits == 3 && snapshot.age_ms == 0);
+        assert(snapshot.cps10[0] == 10000 && snapshot.cps10[1] == -10000);
+        tick = 15;
+        Motor_GetFeedbackSnapshot(&snapshot);
+        assert(snapshot.age_ms == 5 && snapshot.valid_bits == 3);
+    }
     tick = 111;
     assert(Motor_Update() == HAL_TIMEOUT);
+    {
+        Motor_FeedbackSnapshot snapshot;
+        Motor_GetFeedbackSnapshot(&snapshot);
+        assert(snapshot.valid_bits == 0 && snapshot.cps10[0] == 0 && snapshot.cps10[1] == 0);
+    }
     puts("PASS: Motor_SystemInit rollback/retry, Motor_SetDutyPercent(30,30), Motor_Update timing and feedback");
     {
         PID_Config cfg = {2, 1, 0, 0, 600, 0, 600, 0.02f};

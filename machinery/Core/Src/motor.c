@@ -106,6 +106,27 @@ HAL_StatusTypeDef Motor_Update(void)
     return speed_update(elapsed);
 }
 
+void Motor_GetFeedbackSnapshot(Motor_FeedbackSnapshot *snapshot)
+{
+    Encoder_State *encoders[2] = {&encoderA, &encoderB};
+    unsigned int i;
+    if (snapshot == NULL) return;
+    snapshot->age_ms = HAL_GetTick() - encoderTick;
+    snapshot->valid_bits = 0U;
+    for (i = 0U; i < 2U; ++i)
+    {
+        float value = encoders[i]->counts_per_second;
+        snapshot->cps10[i] = 0;
+        if (systemReady && snapshot->age_ms <= 100U && encoders[i]->valid &&
+            value == value && value > -214748300.0f && value < 214748300.0f)
+        {
+            float scaled = value * 10.0f;
+            snapshot->cps10[i] = (int32_t)(scaled + (scaled < 0.0f ? -0.5f : 0.5f));
+            snapshot->valid_bits |= (uint8_t)(1U << i);
+        }
+    }
+}
+
 static int channel_valid(uint32_t channel)
 {
     return channel == TIM_CHANNEL_1 || channel == TIM_CHANNEL_2 ||

@@ -1,9 +1,10 @@
 #include "motor_uart.h"
+#include "main.h"
 #include "motor_command.h"
 #include "motor.h"
 #include <string.h>
 
-#define RX_CAPACITY 64U
+#define RX_CAPACITY 256U
 #define TX_CAPACITY 8U
 
 typedef struct {
@@ -22,6 +23,20 @@ static uint8_t tx_active;
 static uint8_t tx_overflow;
 static volatile uint8_t tx_done;
 static uint8_t uart_ready;
+static char status_pending[MOTOR_COMMAND_REPLY_SIZE];
+static char status_active[MOTOR_COMMAND_REPLY_SIZE];
+static uint8_t status_waiting, motor_healthy = 1U;
+static uint32_t tx_start_tick, busy_tick;
+static uint8_t busy_waiting;
+
+static int queue_status(const char *message)
+{
+    size_t size = strlen(message);
+    if (size >= MOTOR_COMMAND_REPLY_SIZE) return 0;
+    memcpy(status_pending, message, size + 1U);
+    status_waiting = 1U;
+    return 1;
+}
 
 static int queue_reply(const char *message)
 {
@@ -75,7 +90,7 @@ HAL_StatusTypeDef Motor_UARTInit(void)
     if (HAL_UART_Receive_IT(&command_uart, &received_byte, 1U) != HAL_OK)
         return HAL_ERROR;
     uart_ready = 1U;
-    Motor_CommandInit(queue_reply);
+    Motor_CommandInit(queue_reply, queue_status);
     return HAL_OK;
 }
 
@@ -116,8 +131,25 @@ void Motor_UARTPoll(void)
     HAL_StatusTypeDef status;
     if (!uart_ready) return;
     status = Motor_Update();
+    if (status != HAL_BUSY) motor_healthy = (uint8_t)(status == HAL_OK);
     if (status == HAL_ERROR || status == HAL_TIMEOUT)
         Motor_CommandFault("MOTOR_SAMPLE_OR_FEEDBACK");
+    /* Enforce the current lease before draining bytes with older timestamps. */
+    Motor_CommandPoll(HAL_GetTick());
+    if (tx_active && tx_done)
+    {
+        tx_done = 0U;
+        if (tx_active == 1U) tx_tail = (tx_tail + 1U) % TX_CAPACITY;
+        tx_active = 0U;
+    }
+    if ((tx_active && (uint32_t)(HAL_GetTick() - tx_start_tick) >= 100U) ||
+        (busy_waiting && (uint32_t)(HAL_GetTick() - busy_tick) >= 100U))
+    {
+        (void)HAL_UART_AbortTransmit(&command_uart);
+        tx_active = tx_done = busy_waiting = 0U;
+        tx_tail = tx_head;
+        Motor_CommandFault("UART_TX_TIMEOUT");
+    }
     if (rx_failed)
     {
         Motor_CommandFault("UART_RX");
@@ -131,6 +163,7 @@ void Motor_UARTPoll(void)
             rx_failed = 1U;
         __set_PRIMASK(mask);
     }
+    Motor_CommandSetHealthy((uint8_t)(motor_healthy && !rx_failed && !tx_overflow && !busy_waiting));
     for (count = 0U; count < RX_CAPACITY && rx_tail != rx_head && !rx_failed; ++count)
     {
         uint32_t received_tick = rx_queue[rx_tail].tick;
@@ -144,24 +177,41 @@ void Motor_UARTPoll(void)
         }
         Motor_CommandReceive(byte, received_tick);
     }
+    /* Drain existing requests before granting permission to future frames. */
+    Motor_CommandButtonPoll((uint8_t)(HAL_GPIO_ReadPin(START_BUTTON_GPIO_Port,
+        START_BUTTON_Pin) == GPIO_PIN_SET), HAL_GetTick());
     Motor_CommandPoll(HAL_GetTick());
-    if (tx_active && tx_done)
-    {
-        tx_done = 0U;
-        tx_active = 0U;
-        tx_tail = (tx_tail + 1U) % TX_CAPACITY;
-    }
     if (tx_overflow && (tx_head + 1U) % TX_CAPACITY != tx_tail)
     {
         tx_overflow = 0U;
         Motor_CommandFault("TX_BACKPRESSURE");
     }
-    if (!tx_active && tx_tail != tx_head)
+    if (!tx_active && (tx_tail != tx_head || status_waiting))
     {
+        uint8_t kind;
+        char *message;
         tx_done = 0U;
-        status = HAL_UART_Transmit_IT(&command_uart, (uint8_t *)tx_queue[tx_tail],
-                                      (uint16_t)strlen(tx_queue[tx_tail]));
-        if (status == HAL_OK) tx_active = 1U;
-        else if (status != HAL_BUSY) Motor_CommandFault("UART_TX");
+        kind = tx_tail != tx_head ? 1U : 2U;
+        if (kind == 2U) memcpy(status_active, status_pending, sizeof(status_active));
+        message = kind == 1U ? tx_queue[tx_tail] : status_active;
+        status = HAL_UART_Transmit_IT(&command_uart, (uint8_t *)message, (uint16_t)strlen(message));
+        if (status == HAL_OK)
+        {
+            tx_active = kind;
+            tx_start_tick = HAL_GetTick();
+            busy_waiting = 0U;
+            if (kind == 2U) status_waiting = 0U;
+        }
+        else if (status == HAL_BUSY)
+        {
+            if (!busy_waiting) { busy_tick = HAL_GetTick(); busy_waiting = 1U; }
+        }
+        else
+        {
+            tx_tail = tx_head;
+            busy_waiting = 0U;
+            Motor_CommandSetHealthy(0U);
+            Motor_CommandFault("UART_TX");
+        }
     }
 }

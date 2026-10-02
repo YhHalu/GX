@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orangepi-gx-uart"
+version = "2.1.0"
+requires-python = ">=3.10"
+dependencies = ["pyserial==3.5"]
+
+[project.scripts]
+gx-uart = "orangepi_comm.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["orangepi_comm*"]

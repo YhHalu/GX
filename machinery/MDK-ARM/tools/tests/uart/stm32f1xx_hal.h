@@ -12,6 +12,9 @@ typedef struct { void *Instance; UART_InitTypeDef Init; } UART_HandleTypeDef;
 extern unsigned int test_uart_instance, test_gpio_instance;
 #define USART1 (&test_uart_instance)
 #define GPIOA (&test_gpio_instance)
+#define GPIOB ((void *)((char *)&test_gpio_instance + 1))
+#define GPIO_PIN_2 4U
+#define GPIO_PIN_SET 1U
 #define GPIO_PIN_9 512U
 #define GPIO_PIN_10 1024U
 #define GPIO_MODE_AF_PP 2U
@@ -32,12 +35,14 @@ extern unsigned int test_uart_instance, test_gpio_instance;
 #define __HAL_UART_CLEAR_OREFLAG(uart) ((void)(uart))
 
 void HAL_GPIO_Init(void *, GPIO_InitTypeDef *);
+unsigned int HAL_GPIO_ReadPin(void *, uint16_t);
 void HAL_NVIC_SetPriority(uint32_t, uint32_t, uint32_t);
 void HAL_NVIC_EnableIRQ(uint32_t);
 HAL_StatusTypeDef HAL_UART_Init(UART_HandleTypeDef *);
 HAL_StatusTypeDef HAL_UART_Receive_IT(UART_HandleTypeDef *, uint8_t *, uint16_t);
 HAL_StatusTypeDef HAL_UART_Transmit_IT(UART_HandleTypeDef *, uint8_t *, uint16_t);
 HAL_StatusTypeDef HAL_UART_AbortReceive(UART_HandleTypeDef *);
+HAL_StatusTypeDef HAL_UART_AbortTransmit(UART_HandleTypeDef *);
 void HAL_UART_IRQHandler(UART_HandleTypeDef *);
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *);
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *);

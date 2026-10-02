@@ -59,6 +59,8 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 
 /* USER CODE BEGIN Private defines */
+#define START_BUTTON_Pin GPIO_PIN_2
+#define START_BUTTON_GPIO_Port GPIOB
 
 /* USER CODE END Private defines */
 

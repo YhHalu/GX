@@ -97,6 +97,14 @@ typedef struct {
 extern Encoder_State encoderA;
 extern Encoder_State encoderB;
 
+/* Foreground-only snapshot. CPS is signed quadrature counts/s times ten. */
+typedef struct {
+    int32_t cps10[2];
+    uint32_t age_ms;
+    uint8_t valid_bits;
+} Motor_FeedbackSnapshot;
+void Motor_GetFeedbackSnapshot(Motor_FeedbackSnapshot *snapshot);
+
 void Encoder_Reset(Encoder_State *s, uint16_t counter);
 /* Call frequently enough that actual movement is <32768 counts per sample.
  * Gap >100 ms or exactly half a counter range invalidates this sample.
